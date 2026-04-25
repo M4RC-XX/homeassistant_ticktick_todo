@@ -2,6 +2,8 @@
   "domain": "ticktick_todo",
   "name": "TickTick To-Do",
   "version": "1.0.0",
+  "documentation": "https://github.com/M4RC-XX/homeassistant_ticktick_todo/",
+  "issue_tracker": "https://github.com/M4RC-XX/homeassistant_ticktick_todo/issues",
   "requirements": ["aiohttp"],
   "dependencies": [
     "http",

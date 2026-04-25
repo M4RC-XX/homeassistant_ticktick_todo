@@ -1,0 +1,18 @@
+{
+  "config": {
+    "step": {
+      "pick_implementation": {
+        "title": "Wähle die Authentifizierungsmethode"
+      }
+    },
+    "abort": {
+      "already_configured": "Dieses Konto ist bereits konfiguriert",
+      "already_in_progress": "Konfiguration läuft bereits",
+      "oauth_error": "Ungültige OAuth-Daten erhalten.",
+      "missing_configuration": "Die Komponente ist nicht konfiguriert. Bitte folge der Dokumentation."
+    }
+  },
+  "application_credentials": {
+    "description": "Folge der [Anleitung]({more_info_url}), um deine App zu konfigurieren. \n\n Trage hier die Daten aus deinem TickTick Developer Portal ein."
+  }
+}

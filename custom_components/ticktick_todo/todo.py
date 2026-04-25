@@ -59,7 +59,7 @@ class TickTickTodoList(TodoListEntity):
         # NEU: Gruppierung unter einem "TickTick" Gerät
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry_id)},
-            name="TickTick Account",
+            name="TickTick",
             manufacturer="TickTick",
             model="API Integration",
         )

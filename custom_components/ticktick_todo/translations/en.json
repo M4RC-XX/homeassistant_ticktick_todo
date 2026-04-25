@@ -1,0 +1,18 @@
+{
+  "config": {
+    "step": {
+      "pick_implementation": {
+        "title": "Pick authentication method"
+      }
+    },
+    "abort": {
+      "already_configured": "Account is already configured",
+      "already_in_progress": "Config flow is already in progress",
+      "oauth_error": "Received invalid OAuth data.",
+      "missing_configuration": "The component is not configured. Please follow the documentation."
+    }
+  },
+  "application_credentials": {
+    "description": "Follow the [instructions]({more_info_url}) to configure your app. \n\n Enter the credentials from your TickTick Developer Portal here."
+  }
+}
