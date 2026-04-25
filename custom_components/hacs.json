@@ -1,0 +1,6 @@
+{
+  "name": "TickTick To-Do",
+  "render_readme": true,
+  "file_name": "ticktick_todo",
+  "iot_class": "Cloud Polling"
+}
