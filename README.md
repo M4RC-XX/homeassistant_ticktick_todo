@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://img.icons8.com/fluent/1200/tick-tick.jpg" width="100" height="100" alt="TickTick Logo">
+</p>
+
 # TickTick To-Do Integration for Home Assistant
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
