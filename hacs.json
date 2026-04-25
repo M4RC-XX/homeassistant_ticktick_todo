@@ -2,5 +2,7 @@
   "name": "TickTick To-Do",
   "render_readme": true,
   "file_name": "ticktick_todo",
-  "iot_class": "Cloud Polling"
+  "iot_class": "cloud_polling",
+  "zip_release": true,
+  "filename": "ticktick_todo.zip"
 }
