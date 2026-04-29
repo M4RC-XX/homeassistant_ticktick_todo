@@ -1,45 +1,93 @@
+from datetime import timedelta
+import logging
+import datetime
+
 from homeassistant.components.todo import (
     TodoItem, TodoItemStatus, TodoListEntity, TodoListEntityFeature
 )
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.update_coordinator import (
+    CoordinatorEntity,
+    DataUpdateCoordinator,
+    UpdateFailed,
+)
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.exceptions import HomeAssistantError
+
 from .const import DOMAIN, API_BASE_URL
-import logging
-import datetime
 
 _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(hass, entry, async_add_entities):
-    """Setzt die TickTick Plattform für alle Projekte/Listen ein."""
+    """Setzt die Plattform mit einem zentralen Coordinator auf."""
     session = hass.data[DOMAIN][entry.entry_id]
-    await session.async_ensure_token_valid()
-    access_token = session.token["access_token"]
-    headers = {"Authorization": f"Bearer {access_token}"}
-    client = async_get_clientsession(hass)
+    
+    async def async_update_data():
+        """Zentraler Datenabruf für ALLE Listen auf einmal."""
+        try:
+            await session.async_ensure_token_valid()
+            access_token = session.token["access_token"]
+            headers = {"Authorization": f"Bearer {access_token}"}
+            client = async_get_clientsession(hass)
+            
+            # 1. Alle Projekte holen
+            async with client.get(f"{API_BASE_URL}/project", headers=headers) as resp:
+                if resp.status != 200:
+                    raise UpdateFailed(f"Konnte Projekte nicht laden: {resp.status}")
+                projects = await resp.json()
+            
+            # Inbox (Posteingang) manuell hinzufügen, falls TickTick sie nicht listet
+            if not any(p["id"] == "inbox" for p in projects):
+                projects.append({"id": "inbox", "name": "Posteingang"})
+            
+            # 2. Daten für jedes einzelne Projekt holen
+            full_data = {}
+            for project in projects:
+                p_id = project["id"]
+                url = f"{API_BASE_URL}/project/{p_id}/data"
+                async with client.get(url, headers=headers) as p_resp:
+                    if p_resp.status == 200:
+                        data = await p_resp.json()
+                        
+                        # Wir merken uns die echte Projekt-ID für jede Aufgabe
+                        task_map = {}
+                        all_tasks = data.get("tasks", []) + data.get("completed", [])
+                        for task in all_tasks:
+                            task_map[task["id"]] = task.get("projectId", p_id)
+                            
+                        full_data[p_id] = {
+                            "name": project["name"],
+                            "tasks": data,
+                            "task_map": task_map
+                        }
+                    else:
+                        _LOGGER.warning("Konnte Daten für Projekt %s nicht laden.", p_id)
+            return full_data
+        except Exception as err:
+            raise UpdateFailed(f"Fehler beim Kommunizieren mit TickTick: {err}")
+
+    # Der Coordinator verwaltet das Abfrage-Intervall (hier alle 60 Sekunden)
+    coordinator = DataUpdateCoordinator(
+        hass,
+        _LOGGER,
+        name="TickTick Tasks",
+        update_method=async_update_data,
+        update_interval=timedelta(seconds=60),
+    )
+
+    # WICHTIG: Erster Abruf, BEVOR die Entitäten erstellt werden.
+    # Das eliminiert den "Nicht verfügbar" Status beim Neustart!
+    await coordinator.async_config_entry_first_refresh()
 
     entities = []
+    for project_id, project_info in coordinator.data.items():
+        entities.append(TickTickTodoList(coordinator, project_info["name"], project_id, entry.entry_id))
     
-    try:
-        async with client.get(f"{API_BASE_URL}/project", headers=headers) as resp:
-            if resp.status == 200:
-                projects = await resp.json()
-                for project in projects:
-                    # Wir geben jedem Projekt seinen Namen und die ID mit
-                    entities.append(TickTickTodoList(session, project["name"], project["id"], entry.entry_id))
-                
-                if not any(p["id"] == "inbox" for p in projects):
-                    entities.append(TickTickTodoList(session, "Posteingang", "inbox", entry.entry_id))
-            else:
-                _LOGGER.error("Konnte Projekte nicht laden: %s", resp.status)
-    except Exception as e:
-        _LOGGER.error("Fehler bei der Projekt-Suche: %s", e)
+    async_add_entities(entities)
 
-    async_add_entities(entities, update_before_add=True)
+class TickTickTodoList(CoordinatorEntity, TodoListEntity):
+    """To-Do Liste, die ihre Daten vom zentralen Coordinator bezieht."""
 
-class TickTickTodoList(TodoListEntity):
-    """Darstellung einer TickTick Liste als Home Assistant To-Do Entität."""
-    
     _attr_supported_features = (
         TodoListEntityFeature.CREATE_TODO_ITEM |
         TodoListEntityFeature.UPDATE_TODO_ITEM |
@@ -48,77 +96,45 @@ class TickTickTodoList(TodoListEntity):
         TodoListEntityFeature.SET_DUE_DATETIME_ON_ITEM
     )
 
-    def __init__(self, session, name, list_id, entry_id):
-        self._session = session
+    def __init__(self, coordinator, name, list_id, entry_id):
+        super().__init__(coordinator)
         self._list_id = list_id
         self._attr_name = f"TickTick {name}"
-        self._attr_unique_id = f"ticktick_list_{list_id}_{entry_id}"
-        self._todo_items = []
-        self._task_project_map = {}
-        
-        # NEU: Gruppierung unter einem "TickTick" Gerät
+        self._attr_unique_id = f"ticktick_l_{list_id}_{entry_id}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry_id)},
-            name="TickTick",
+            name="TickTick Account",
             manufacturer="TickTick",
             model="API Integration",
         )
 
-    async def async_update(self):
-        """Hole Aufgaben inklusive abgeschlossener Elemente."""
-        try:
-            await self._session.async_ensure_token_valid()
-            access_token = self._session.token["access_token"]
-            headers = {"Authorization": f"Bearer {access_token}"}
-            client = async_get_clientsession(self.hass)
-            
-            url = f"{API_BASE_URL}/project/{self._list_id}/data"
-            async with client.get(url, headers=headers) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    all_tasks = data.get("tasks", [])
-                    
-                    # NEU: Wir prüfen, ob TickTick auch ein "completed" Array mitschickt
-                    # Die API sendet oft beides im 'data' Endpunkt
-                    completed_tasks = data.get("completed", [])
-                    
-                    items = []
-                    self._task_project_map.clear()
-                    
-                    # Verarbeite sowohl aktive als auch fertige Aufgaben
-                    for task in (all_tasks + completed_tasks):
-                        self._task_project_map[task["id"]] = task.get("projectId", self._list_id)
-                        
-                        due = None
-                        date_str = task.get("dueDate")
-                        if date_str:
-                            try:
-                                if date_str.endswith("+0000"):
-                                    date_str = date_str[:-5] + "+00:00"
-                                parsed_date = datetime.datetime.fromisoformat(date_str)
-                                due = parsed_date.date() if task.get("isAllDay") else parsed_date
-                            except Exception:
-                                pass
-
-                        items.append(TodoItem(
-                            summary=task["title"],
-                            uid=task["id"],
-                            # Status 2 bedeutet bei TickTick 'Abgeschlossen'
-                            status=TodoItemStatus.COMPLETED if task.get("status") in (2, -1) else TodoItemStatus.NEEDS_ACTION,
-                            due=due
-                        ))
-                    self._todo_items = items
-                else:
-                    _LOGGER.error("Fehler beim Laden von Projekt %s: %s", self._list_id, resp.status)
-        except Exception as e:
-            _LOGGER.error("Update Fehler: %s", e)
-
     @property
     def todo_items(self):
-        return self._todo_items
+        """Holt Items blitzschnell direkt aus dem Cache des Coordinators."""
+        data = self.coordinator.data.get(self._list_id, {}).get("tasks", {})
+        all_tasks = data.get("tasks", []) + data.get("completed", [])
+        
+        items = []
+        for task in all_tasks:
+            due = None
+            if task.get("dueDate"):
+                try:
+                    d_str = task["dueDate"].replace("+0000", "+00:00")
+                    parsed = datetime.datetime.fromisoformat(d_str)
+                    due = parsed.date() if task.get("isAllDay") else parsed
+                except Exception:
+                    pass
+
+            items.append(TodoItem(
+                summary=task["title"],
+                uid=task["id"],
+                status=TodoItemStatus.COMPLETED if task.get("status") in (2, -1) else TodoItemStatus.NEEDS_ACTION,
+                due=due
+            ))
+        return items
 
     def _build_task_payload(self, item: TodoItem, project_id: str) -> dict:
-        """Hilfsfunktion: Baut das Datenpaket für TickTick."""
+        """Hilfsfunktion: Baut das Datenpaket (JSON) für TickTick zusammen."""
         payload = {"title": item.summary, "projectId": project_id}
         if item.due:
             if isinstance(item.due, datetime.datetime):
@@ -131,45 +147,57 @@ class TickTickTodoList(TodoListEntity):
         return payload
 
     async def async_create_todo_item(self, item):
-        """Erstellt eine neue Aufgabe."""
-        await self._session.async_ensure_token_valid()
-        access_token = self._session.token["access_token"]
-        headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
-        client = async_get_clientsession(self.hass)
-        payload = self._build_task_payload(item, self._list_id)
-        async with client.post(f"{API_BASE_URL}/task", json=payload, headers=headers):
-            pass
-        await self.async_update()
-
-    async def async_update_todo_item(self, item):
-        """Aktualisiert eine Aufgabe (Status oder Inhalt)."""
-        await self._session.async_ensure_token_valid()
-        access_token = self._session.token["access_token"]
-        headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+        """Neue Aufgabe erstellen und Coordinator aktualisieren."""
+        session = self.hass.data[DOMAIN][self.coordinator.config_entry.entry_id]
+        await session.async_ensure_token_valid()
+        headers = {"Authorization": f"Bearer {session.token['access_token']}", "Content-Type": "application/json"}
         client = async_get_clientsession(self.hass)
         
-        project_id = self._task_project_map.get(item.uid, self._list_id)
+        payload = self._build_task_payload(item, self._list_id)
+        
+        async with client.post(f"{API_BASE_URL}/task", json=payload, headers=headers) as resp:
+            if resp.status not in (200, 201):
+                _LOGGER.error("Fehler beim Erstellen: %s", await resp.text())
+        
+        # Sagt dem Coordinator: "Ich habe etwas geändert, lade alle Daten neu!"
+        await self.coordinator.async_request_refresh()
+
+    async def async_update_todo_item(self, item):
+        """Aufgabe aktualisieren und Coordinator aktualisieren."""
+        session = self.hass.data[DOMAIN][self.coordinator.config_entry.entry_id]
+        await session.async_ensure_token_valid()
+        headers = {"Authorization": f"Bearer {session.token['access_token']}", "Content-Type": "application/json"}
+        client = async_get_clientsession(self.hass)
+        
+        # Holt die echte Projekt-ID aus dem Cache des Coordinators
+        task_map = self.coordinator.data.get(self._list_id, {}).get("task_map", {})
+        project_id = task_map.get(item.uid, self._list_id)
         
         if item.status == TodoItemStatus.COMPLETED:
             url = f"{API_BASE_URL}/project/{project_id}/task/{item.uid}/complete"
             await client.post(url, headers=headers)
         else:
-            # Reaktivieren einer Aufgabe
             url = f"{API_BASE_URL}/task/{item.uid}"
             payload = self._build_task_payload(item, project_id)
             payload.update({"id": item.uid, "status": 0})
             await client.post(url, json=payload, headers=headers)
         
-        await self.async_update()
+        # Neustart der Synchronisierung
+        await self.coordinator.async_request_refresh()
 
     async def async_delete_todo_items(self, uids: list[str]):
-        """Löscht Aufgaben."""
-        await self._session.async_ensure_token_valid()
-        access_token = self._session.token["access_token"]
-        headers = {"Authorization": f"Bearer {access_token}"}
+        """Aufgaben löschen und Coordinator aktualisieren."""
+        session = self.hass.data[DOMAIN][self.coordinator.config_entry.entry_id]
+        await session.async_ensure_token_valid()
+        headers = {"Authorization": f"Bearer {session.token['access_token']}"}
         client = async_get_clientsession(self.hass)
+        
+        task_map = self.coordinator.data.get(self._list_id, {}).get("task_map", {})
+        
         for uid in uids:
-            project_id = self._task_project_map.get(uid, self._list_id)
+            project_id = task_map.get(uid, self._list_id)
             url = f"{API_BASE_URL}/project/{project_id}/task/{uid}"
             await client.delete(url, headers=headers)
-        await self.async_update()
+            
+        # Neustart der Synchronisierung
+        await self.coordinator.async_request_refresh()
