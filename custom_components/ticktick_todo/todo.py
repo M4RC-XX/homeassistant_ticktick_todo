@@ -1,203 +1,355 @@
-from datetime import timedelta
-import logging
+"""Todo platform for the TickTick To-Do integration."""
+
+from __future__ import annotations
+
+import asyncio
 import datetime
+import logging
+from typing import Any
 
 from homeassistant.components.todo import (
-    TodoItem, TodoItemStatus, TodoListEntity, TodoListEntityFeature
+    TodoItem,
+    TodoItemStatus,
+    TodoListEntity,
+    TodoListEntityFeature,
 )
-from homeassistant.helpers.update_coordinator import (
-    CoordinatorEntity,
-    DataUpdateCoordinator,
-    UpdateFailed,
-)
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, API_BASE_URL
+from . import TickTickConfigEntry
+from .api import TickTickApiError
+from .const import (
+    DOMAIN,
+    INBOX_PROJECT_ID,
+    TICKTICK_STATUS_COMPLETED,
+    TICKTICK_STATUS_NORMAL,
+)
+from .coordinator import TickTickDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-async def async_setup_entry(hass, entry, async_add_entities):
-    """Setzt die Plattform mit einem zentralen Coordinator auf."""
-    session = hass.data[DOMAIN][entry.entry_id]
-    
-    async def async_update_data():
-        """Zentraler Datenabruf für ALLE Listen auf einmal."""
-        try:
-            await session.async_ensure_token_valid()
-            access_token = session.token["access_token"]
-            headers = {"Authorization": f"Bearer {access_token}"}
-            client = async_get_clientsession(hass)
-            
-            # 1. Alle Projekte holen
-            async with client.get(f"{API_BASE_URL}/project", headers=headers) as resp:
-                if resp.status != 200:
-                    raise UpdateFailed(f"Konnte Projekte nicht laden: {resp.status}")
-                projects = await resp.json()
-            
-            # Inbox (Posteingang) manuell hinzufügen, falls TickTick sie nicht listet
-            if not any(p["id"] == "inbox" for p in projects):
-                projects.append({"id": "inbox", "name": "Posteingang"})
-            
-            # 2. Daten für jedes einzelne Projekt holen
-            full_data = {}
-            for project in projects:
-                p_id = project["id"]
-                url = f"{API_BASE_URL}/project/{p_id}/data"
-                async with client.get(url, headers=headers) as p_resp:
-                    if p_resp.status == 200:
-                        data = await p_resp.json()
-                        
-                        # Wir merken uns die echte Projekt-ID für jede Aufgabe
-                        task_map = {}
-                        all_tasks = data.get("tasks", []) + data.get("completed", [])
-                        for task in all_tasks:
-                            task_map[task["id"]] = task.get("projectId", p_id)
-                            
-                        full_data[p_id] = {
-                            "name": project["name"],
-                            "tasks": data,
-                            "task_map": task_map
-                        }
-                    else:
-                        _LOGGER.warning("Konnte Daten für Projekt %s nicht laden.", p_id)
-            return full_data
-        except Exception as err:
-            raise UpdateFailed(f"Fehler beim Kommunizieren mit TickTick: {err}")
 
-    # Der Coordinator verwaltet das Abfrage-Intervall (hier alle 60 Sekunden)
-    coordinator = DataUpdateCoordinator(
-        hass,
-        _LOGGER,
-        name="TickTick Tasks",
-        update_method=async_update_data,
-        update_interval=timedelta(seconds=60),
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: TickTickConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up TickTick To-Do list entities based on a config entry."""
+    coordinator = entry.runtime_data
+    known_projects: set[str] = set()
+
+    @callback
+    def _async_add_new_entities() -> None:
+        """Discover and add new TickTick project lists dynamically."""
+        if not coordinator.data:
+            return
+
+        new_entities: list[TickTickTodoList] = []
+        for project_id, project_info in coordinator.data.items():
+            if project_id not in known_projects:
+                known_projects.add(project_id)
+                new_entities.append(
+                    TickTickTodoList(
+                        coordinator=coordinator,
+                        project_info=project_info,
+                        list_id=project_id,
+                        entry_id=entry.entry_id,
+                    )
+                )
+
+        if new_entities:
+            async_add_entities(new_entities)
+
+    _async_add_new_entities()
+    entry.async_on_unload(
+        coordinator.async_add_listener(_async_add_new_entities)
     )
 
-    # WICHTIG: Erster Abruf, BEVOR die Entitäten erstellt werden.
-    # Das eliminiert den "Nicht verfügbar" Status beim Neustart!
-    await coordinator.async_config_entry_first_refresh()
 
-    entities = []
-    for project_id, project_info in coordinator.data.items():
-        entities.append(TickTickTodoList(coordinator, project_info["name"], project_id, entry.entry_id))
-    
-    async_add_entities(entities)
+class TickTickTodoList(
+    CoordinatorEntity[TickTickDataUpdateCoordinator], TodoListEntity
+):
+    """A TickTick project represented as a Home Assistant To-Do List entity."""
 
-class TickTickTodoList(CoordinatorEntity, TodoListEntity):
-    """To-Do Liste, die ihre Daten vom zentralen Coordinator bezieht."""
-
+    _attr_has_entity_name = True
     _attr_supported_features = (
-        TodoListEntityFeature.CREATE_TODO_ITEM |
-        TodoListEntityFeature.UPDATE_TODO_ITEM |
-        TodoListEntityFeature.DELETE_TODO_ITEM |
-        TodoListEntityFeature.SET_DUE_DATE_ON_ITEM |
-        TodoListEntityFeature.SET_DUE_DATETIME_ON_ITEM
+        TodoListEntityFeature.CREATE_TODO_ITEM
+        | TodoListEntityFeature.UPDATE_TODO_ITEM
+        | TodoListEntityFeature.DELETE_TODO_ITEM
+        | TodoListEntityFeature.SET_DUE_DATE_ON_ITEM
+        | TodoListEntityFeature.SET_DUE_DATETIME_ON_ITEM
+        | TodoListEntityFeature.SET_DESCRIPTION_ON_ITEM
     )
 
-    def __init__(self, coordinator, name, list_id, entry_id):
+    def __init__(
+        self,
+        coordinator: TickTickDataUpdateCoordinator,
+        project_info: dict[str, Any],
+        list_id: str,
+        entry_id: str,
+    ) -> None:
+        """Initialize the TickTick To-Do list entity."""
         super().__init__(coordinator)
         self._list_id = list_id
-        self._attr_name = f"TickTick {name}"
+        self._is_default_inbox = bool(
+            project_info.get("is_default_inbox") or list_id == INBOX_PROJECT_ID
+        )
+
+        if self._is_default_inbox:
+            self._attr_translation_key = "inbox"
+        else:
+            self._attr_name = project_info.get("name", list_id)
+
         self._attr_unique_id = f"ticktick_l_{list_id}_{entry_id}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry_id)},
-            name="TickTick Account",
+            name="TickTick",
             manufacturer="TickTick",
             model="API Integration",
         )
 
-    @property
-    def todo_items(self):
-        """Holt Items blitzschnell direkt aus dem Cache des Coordinators."""
-        data = self.coordinator.data.get(self._list_id, {}).get("tasks", {})
-        all_tasks = data.get("tasks", []) + data.get("completed", [])
-        
-        items = []
-        for task in all_tasks:
-            due = None
-            if task.get("dueDate"):
-                try:
-                    d_str = task["dueDate"].replace("+0000", "+00:00")
-                    parsed = datetime.datetime.fromisoformat(d_str)
-                    due = parsed.date() if task.get("isAllDay") else parsed
-                except Exception:
-                    pass
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        if (
+            not self._is_default_inbox
+            and self.coordinator.data
+            and self._list_id in self.coordinator.data
+        ):
+            self._attr_name = self.coordinator.data[self._list_id].get(
+                "name", self._attr_name
+            )
+        super()._handle_coordinator_update()
 
-            items.append(TodoItem(
-                summary=task["title"],
-                uid=task["id"],
-                status=TodoItemStatus.COMPLETED if task.get("status") in (2, -1) else TodoItemStatus.NEEDS_ACTION,
-                due=due
-            ))
+    @staticmethod
+    def _parse_due_date(
+        task: dict[str, Any],
+    ) -> datetime.date | datetime.datetime | None:
+        """Parse TickTick dueDate into a local date or datetime object."""
+        due_str = task.get("dueDate")
+        if not due_str:
+            return None
+
+        parsed = dt_util.parse_datetime(due_str)
+        if parsed is None:
+            try:
+                normalized = due_str.replace("+0000", "+00:00")
+                parsed = datetime.datetime.fromisoformat(normalized)
+            except (ValueError, TypeError):
+                return None
+
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+
+        if task.get("isAllDay"):
+            tz_name = task.get("timeZone")
+            target_tz = (
+                dt_util.get_time_zone(tz_name)
+                if tz_name
+                else dt_util.DEFAULT_TIME_ZONE
+            )
+            if target_tz is not None:
+                return parsed.astimezone(target_tz).date()
+            return dt_util.as_local(parsed).date()
+
+        return dt_util.as_local(parsed)
+
+    @property
+    def todo_items(self) -> list[TodoItem] | None:
+        """Return the To-Do items for this project from the coordinator cache."""
+        if not self.coordinator.data:
+            return None
+
+        project_data = self.coordinator.data.get(self._list_id, {})
+        tasks_container = project_data.get("tasks", {})
+        all_tasks = tasks_container.get("tasks", []) + tasks_container.get(
+            "completed", []
+        )
+
+        items: list[TodoItem] = []
+        for task in all_tasks:
+            task_id = task.get("id")
+            if not task_id:
+                continue
+
+            due = self._parse_due_date(task)
+            status = (
+                TodoItemStatus.COMPLETED
+                if task.get("status") in TICKTICK_STATUS_COMPLETED
+                else TodoItemStatus.NEEDS_ACTION
+            )
+            description = task.get("content") or None
+
+            items.append(
+                TodoItem(
+                    summary=task.get("title", ""),
+                    uid=task_id,
+                    status=status,
+                    due=due,
+                    description=description,
+                )
+            )
         return items
 
-    def _build_task_payload(self, item: TodoItem, project_id: str) -> dict:
-        """Hilfsfunktion: Baut das Datenpaket (JSON) für TickTick zusammen."""
-        payload = {"title": item.summary, "projectId": project_id}
-        if item.due:
+    def _build_task_payload(
+        self,
+        item: TodoItem,
+        project_id: str,
+        existing_task: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Build the JSON payload for creating or updating a task in TickTick."""
+        payload: dict[str, Any] = {
+            "title": item.summary,
+            "projectId": project_id,
+        }
+
+        if existing_task:
+            if "priority" in existing_task:
+                payload["priority"] = existing_task["priority"]
+            if "sortOrder" in existing_task:
+                payload["sortOrder"] = existing_task["sortOrder"]
+
+        if item.description is not None:
+            payload["content"] = item.description
+        elif existing_task and existing_task.get("content"):
+            payload["content"] = ""
+
+        tz_name = (
+            str(dt_util.DEFAULT_TIME_ZONE)
+            if dt_util.DEFAULT_TIME_ZONE
+            else "UTC"
+        )
+
+        if item.due is not None:
+            payload["timeZone"] = tz_name
             if isinstance(item.due, datetime.datetime):
-                utc_due = item.due.astimezone(datetime.timezone.utc)
-                payload["dueDate"] = utc_due.strftime("%Y-%m-%dT%H:%M:%S+0000")
+                aware_due = (
+                    item.due
+                    if item.due.tzinfo is not None
+                    else item.due.replace(tzinfo=dt_util.DEFAULT_TIME_ZONE)
+                )
+                utc_due = dt_util.as_utc(aware_due)
+                payload["dueDate"] = utc_due.strftime(
+                    "%Y-%m-%dT%H:%M:%S.000+0000"
+                )
                 payload["isAllDay"] = False
             else:
-                payload["dueDate"] = item.due.strftime("%Y-%m-%dT00:00:00+0000")
+                local_midnight = dt_util.start_of_local_day(item.due)
+                utc_due = dt_util.as_utc(local_midnight)
+                payload["dueDate"] = utc_due.strftime(
+                    "%Y-%m-%dT%H:%M:%S.000+0000"
+                )
                 payload["isAllDay"] = True
+        elif existing_task and existing_task.get("dueDate"):
+            payload["dueDate"] = None
+            payload["isAllDay"] = False
+
         return payload
 
-    async def async_create_todo_item(self, item):
-        """Neue Aufgabe erstellen und Coordinator aktualisieren."""
-        session = self.hass.data[DOMAIN][self.coordinator.config_entry.entry_id]
-        await session.async_ensure_token_valid()
-        headers = {"Authorization": f"Bearer {session.token['access_token']}", "Content-Type": "application/json"}
-        client = async_get_clientsession(self.hass)
-        
+    async def async_create_todo_item(self, item: TodoItem) -> None:
+        """Create a new task in TickTick and refresh the coordinator."""
         payload = self._build_task_payload(item, self._list_id)
-        
-        async with client.post(f"{API_BASE_URL}/task", json=payload, headers=headers) as resp:
-            if resp.status not in (200, 201):
-                _LOGGER.error("Fehler beim Erstellen: %s", await resp.text())
-        
-        # Sagt dem Coordinator: "Ich habe etwas geändert, lade alle Daten neu!"
+        try:
+            await self.coordinator.client.async_create_task(payload)
+        except TickTickApiError as err:
+            raise HomeAssistantError(
+                f"Failed to create TickTick task '{item.summary}': {err}"
+            ) from err
+
         await self.coordinator.async_request_refresh()
 
-    async def async_update_todo_item(self, item):
-        """Aufgabe aktualisieren und Coordinator aktualisieren."""
-        session = self.hass.data[DOMAIN][self.coordinator.config_entry.entry_id]
-        await session.async_ensure_token_valid()
-        headers = {"Authorization": f"Bearer {session.token['access_token']}", "Content-Type": "application/json"}
-        client = async_get_clientsession(self.hass)
-        
-        # Holt die echte Projekt-ID aus dem Cache des Coordinators
-        task_map = self.coordinator.data.get(self._list_id, {}).get("task_map", {})
+    async def async_update_todo_item(self, item: TodoItem) -> None:
+        """Update an existing task in TickTick and refresh the coordinator."""
+        if not item.uid:
+            raise HomeAssistantError("Cannot update TickTick task without UID")
+
+        project_data = (
+            self.coordinator.data.get(self._list_id, {})
+            if self.coordinator.data
+            else {}
+        )
+        task_map: dict[str, str] = project_data.get("task_map", {})
+        tasks_by_id: dict[str, dict[str, Any]] = project_data.get(
+            "tasks_by_id", {}
+        )
+
         project_id = task_map.get(item.uid, self._list_id)
-        
-        if item.status == TodoItemStatus.COMPLETED:
-            url = f"{API_BASE_URL}/project/{project_id}/task/{item.uid}/complete"
-            await client.post(url, headers=headers)
-        else:
-            url = f"{API_BASE_URL}/task/{item.uid}"
-            payload = self._build_task_payload(item, project_id)
-            payload.update({"id": item.uid, "status": 0})
-            await client.post(url, json=payload, headers=headers)
-        
-        # Neustart der Synchronisierung
+        existing_task = tasks_by_id.get(item.uid)
+
+        was_completed = (
+            existing_task is not None
+            and existing_task.get("status") in TICKTICK_STATUS_COMPLETED
+        )
+        is_completed = item.status == TodoItemStatus.COMPLETED
+
+        fields_changed = True
+        if existing_task is not None:
+            existing_due = self._parse_due_date(existing_task)
+            existing_desc = existing_task.get("content") or None
+            new_desc = item.description or None
+            fields_changed = (
+                item.summary != existing_task.get("title")
+                or item.due != existing_due
+                or new_desc != existing_desc
+            )
+
+        try:
+            if not is_completed:
+                payload = self._build_task_payload(
+                    item, project_id, existing_task
+                )
+                payload["id"] = item.uid
+                payload["status"] = TICKTICK_STATUS_NORMAL
+                await self.coordinator.client.async_update_task(
+                    item.uid, payload
+                )
+            else:
+                if fields_changed or was_completed:
+                    payload = self._build_task_payload(
+                        item, project_id, existing_task
+                    )
+                    payload["id"] = item.uid
+                    if was_completed and existing_task:
+                        payload["status"] = existing_task.get("status", 2)
+                    await self.coordinator.client.async_update_task(
+                        item.uid, payload
+                    )
+                if not was_completed:
+                    await self.coordinator.client.async_complete_task(
+                        project_id, item.uid
+                    )
+        except TickTickApiError as err:
+            raise HomeAssistantError(
+                f"Failed to update TickTick task '{item.summary}': {err}"
+            ) from err
+
         await self.coordinator.async_request_refresh()
 
-    async def async_delete_todo_items(self, uids: list[str]):
-        """Aufgaben löschen und Coordinator aktualisieren."""
-        session = self.hass.data[DOMAIN][self.coordinator.config_entry.entry_id]
-        await session.async_ensure_token_valid()
-        headers = {"Authorization": f"Bearer {session.token['access_token']}"}
-        client = async_get_clientsession(self.hass)
-        
-        task_map = self.coordinator.data.get(self._list_id, {}).get("task_map", {})
-        
-        for uid in uids:
-            project_id = task_map.get(uid, self._list_id)
-            url = f"{API_BASE_URL}/project/{project_id}/task/{uid}"
-            await client.delete(url, headers=headers)
-            
-        # Neustart der Synchronisierung
+    async def async_delete_todo_items(self, uids: list[str]) -> None:
+        """Delete one or more tasks from TickTick and refresh the coordinator."""
+        project_data = (
+            self.coordinator.data.get(self._list_id, {})
+            if self.coordinator.data
+            else {}
+        )
+        task_map: dict[str, str] = project_data.get("task_map", {})
+
+        try:
+            await asyncio.gather(
+                *(
+                    self.coordinator.client.async_delete_task(
+                        task_map.get(uid, self._list_id), uid
+                    )
+                    for uid in uids
+                )
+            )
+        except TickTickApiError as err:
+            raise HomeAssistantError(
+                f"Failed to delete TickTick task(s): {err}"
+            ) from err
+
         await self.coordinator.async_request_refresh()

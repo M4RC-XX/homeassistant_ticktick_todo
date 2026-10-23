@@ -1,15 +1,15 @@
 {
   "domain": "ticktick_todo",
   "name": "TickTick To-Do",
-  "version": "1.1.0",
-  "documentation": "https://github.com/M4RC-XX/homeassistant_ticktick_todo/",
-  "issue_tracker": "https://github.com/M4RC-XX/homeassistant_ticktick_todo/issues",
-  "requirements": ["aiohttp"],
+  "codeowners": ["@M4RC-XX"],
+  "config_flow": true,
   "dependencies": [
     "http",
     "application_credentials"
   ],
-  "codeowners": ["@M4RC-XX"],
-  "config_flow": true,
-  "iot_class": "cloud_polling"
+  "documentation": "https://github.com/M4RC-XX/homeassistant_ticktick_todo/",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/M4RC-XX/homeassistant_ticktick_todo/issues",
+  "requirements": [],
+  "version": "1.2.0"
 }

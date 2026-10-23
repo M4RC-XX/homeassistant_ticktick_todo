@@ -1,7 +1,7 @@
 ![Version](https://img.shields.io/github/v/release/M4RC-XX/homeassistant_ticktick_todo?style=for-the-badge)
 ![Downloads](https://img.shields.io/github/downloads/M4RC-XX/homeassistant_ticktick_todo/total?style=for-the-badge)
-![Contributors](https://img.shields.io/github/contributors/M4RC-XX/homeassistant_ticktick_todo?style=for-the-badge)
-[![hacs_badge](https://img.shields.io/badge/HACS-Default-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
+![Contributors](https://img.shields.io/github/contributors/M4RC-XX/homeassistant_ticktick_todo/graphs/contributors?style=for-the-badge)
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
 <br>
 <p align="center">
   <img src="images/logo.jpg" width="100" height="100" alt="TickTick Logo">
@@ -19,17 +19,20 @@ An unofficial but powerful Home Assistant integration for [TickTick](https://tic
 
 ## ✨ Features
 
-* **Auto-Discovery:** Automatically finds and adds all your TickTick projects (including Inbox) as separate To-Do entities.
-* **Full Task Management:** Create, complete, uncomplete, rename, and permanently delete tasks.
-* **Due Dates:** Full support for due dates and specific due times.
-* **Completed Tasks:** View finished tasks directly within the Home Assistant UI.
-* **Device Grouping:** All lists are neatly grouped under a "TickTick Account" device.
+* **Live Auto-Discovery:** Automatically finds and adds all your TickTick projects (including a localized Inbox) as separate To-Do entities — even when new lists are created at runtime without restarting Home Assistant.
+* **Full Task Management:** Create, complete, uncomplete, rename, and permanently delete tasks while preserving existing TickTick metadata (such as task priority and sort order).
+* **Task Descriptions / Notes:** View, create, edit, and clear task descriptions directly from Home Assistant.
+* **Timezone-Aware Due Dates:** Full support for all-day due dates, specific due times, and clearing existing due dates.
+* **Fast Parallel Syncing:** Fetches all project lists concurrently in the background with built-in rate-limit protection.
+* **Automatic Re-Authentication:** Prompts you directly in the Home Assistant UI if your OAuth session ever expires.
+* **Device Grouping:** All lists are neatly grouped under a single "TickTick" device.
 
 ---
 
 ## 🛠️ Prerequisites
 
-To use this integration, you need your own TickTick developer credentials. It's free and takes about 2 minutes:
+* **Home Assistant:** Version `2024.8.0` or newer.
+* **TickTick Developer Credentials:** Free and takes about 2 minutes to set up:
 
 1. Log in to the [TickTick Developer Center](https://developer.ticktick.com/).
 2. Click on **Manage Apps** and create a new app (Web App).
@@ -65,8 +68,14 @@ To use this integration, you need your own TickTick developer credentials. It's 
 
 ## 🇩🇪 Deutsche Anleitung
 
+### Funktionsumfang
+* **Dynamische Listenerkennung:** Findet automatisch alle TickTick-Projekte (inkl. lokalisiertem *Posteingang*) und erkennt neu angelegte Listen im laufenden Betrieb ohne Neustart.
+* **Aufgabenverwaltung & Notizen:** Aufgaben erstellen, abhaken, umbenennen, löschen sowie **Beschreibungen/Notizen** und **Fälligkeitsdaten** (inkl. Uhrzeit & korrekter Zeitzone) bearbeiten.
+* **Schnelle Synchronisierung:** Paralleler Abruf aller Listen im Hintergrund sowie automatischer Re-Auth-Dialog bei abgelaufenen Zugangsdaten.
+
 ### Voraussetzungen
-Erstelle eine Web-App im [TickTick Developer Center](https://developer.ticktick.com/) mit der Redirect-URL `https://my.home-assistant.io/redirect/oauth`.
+* **Home Assistant:** Mindestens Version `2024.8.0`.
+* **TickTick App:** Erstelle eine Web-App im [TickTick Developer Center](https://developer.ticktick.com/) mit der Redirect-URL `https://my.home-assistant.io/redirect/oauth`.
 
 ### Installation
 Füge dieses Repository als "Benutzerdefiniertes Repository" in HACS hinzu, lade es herunter und starte Home Assistant neu.
