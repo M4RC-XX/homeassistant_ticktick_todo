@@ -17,6 +17,7 @@ from .const import (
     ATTR_ADD_VALUE,
     ATTR_DATE,
     ATTR_HABIT_ID,
+    ATTR_VALUE,
     DOMAIN,
     SERVICE_HABIT_CHECKIN,
 )

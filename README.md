@@ -1,6 +1,6 @@
 ![Version](https://img.shields.io/github/v/release/M4RC-XX/homeassistant_ticktick_todo?style=for-the-badge)
 ![Downloads](https://img.shields.io/github/downloads/M4RC-XX/homeassistant_ticktick_todo/total?style=for-the-badge)
-![Contributors](https://img.shields.io/github/contributors/M4RC-XX/homeassistant_ticktick_todo/graphs/contributors?style=for-the-badge)
+![Contributors](https://img.shields.io/github/contributors/M4RC-XX/homeassistant_ticktick_todo?style=for-the-badge)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
 <br>
 <p align="center">
