@@ -1,0 +1,50 @@
+habit_checkin:
+  name: Habit check-in
+  description: Check in a TickTick Habit or manually add/set time or progress towards a habit's daily goal.
+  fields:
+    entity_id:
+      name: Habit entity
+      description: Select a TickTick Habit switch, number, or button entity.
+      required: false
+      selector:
+        entity:
+          integration: ticktick_todo
+          domain:
+            - switch
+            - number
+            - button
+    habit_id:
+      name: Habit ID or Name
+      description: The TickTick Habit ID or exact name (e.g. "Read"). Optional if an entity is selected above.
+      required: false
+      example: "Read"
+      selector:
+        text:
+    add_value:
+      name: Add value / time
+      description: Amount of progress or time to add to today's check-in value (e.g. 15 to add 15 minutes).
+      required: false
+      example: 15
+      selector:
+        number:
+          min: -10000
+          max: 10000
+          step: any
+          mode: box
+    value:
+      name: Exact value
+      description: Set the check-in value to an exact number. If neither 'value' nor 'add_value' is provided, the habit is checked in at 100% of its daily goal.
+      required: false
+      example: 30
+      selector:
+        number:
+          min: 0
+          max: 100000
+          step: any
+          mode: box
+    date:
+      name: Date
+      description: Date for the check-in (defaults to today).
+      required: false
+      selector:
+        date:

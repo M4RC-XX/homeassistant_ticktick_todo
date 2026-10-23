@@ -26,5 +26,33 @@
         "name": "Posteingang"
       }
     }
+  },
+  "services": {
+    "habit_checkin": {
+      "name": "Habit einchecken",
+      "description": "Checkt ein TickTick-Habit ein oder fügt manuell Zeit/Fortschritt zum Tagesziel hinzu.",
+      "fields": {
+        "entity_id": {
+          "name": "Habit-Entität",
+          "description": "Wähle eine TickTick-Habit Switch-, Number- oder Button-Entität."
+        },
+        "habit_id": {
+          "name": "Habit-ID oder Name",
+          "description": "Die TickTick Habit-ID oder der genaue Name (z. B. 'Lesen'). Optional, wenn oben eine Entität gewählt wurde."
+        },
+        "add_value": {
+          "name": "Wert / Zeit addieren",
+          "description": "Fortschritt oder Zeit, die zum heutigen Stand addiert werden soll (z. B. 15 für +15 Minuten)."
+        },
+        "value": {
+          "name": "Exakter Wert",
+          "description": "Setzt den heutigen Check-in-Wert auf eine feste Zahl. Wenn weder 'value' noch 'add_value' angegeben ist, wird das Tagesziel zu 100 % abgehakt."
+        },
+        "date": {
+          "name": "Datum",
+          "description": "Datum für den Check-in (Standard: heute)."
+        }
+      }
+    }
   }
 }

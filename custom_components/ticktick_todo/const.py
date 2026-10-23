@@ -21,3 +21,14 @@ REQUEST_TIMEOUT = 15
 # TickTick Task Status Constants
 TICKTICK_STATUS_NORMAL = 0
 TICKTICK_STATUS_COMPLETED = (2, -1)
+
+# TickTick Habit Constants
+HABIT_STATUS_ACTIVE = 0
+HABIT_CHECKIN_COMPLETED = 2
+
+# Service Names & Attributes
+SERVICE_HABIT_CHECKIN = "habit_checkin"
+ATTR_HABIT_ID = "habit_id"
+ATTR_VALUE = "value"
+ATTR_ADD_VALUE = "add_value"
+ATTR_DATE = "date"

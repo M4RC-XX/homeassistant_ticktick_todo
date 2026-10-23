@@ -11,5 +11,5 @@
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/M4RC-XX/homeassistant_ticktick_todo/issues",
   "requirements": [],
-  "version": "1.2.0"
+  "version": "1.3.0"
 }

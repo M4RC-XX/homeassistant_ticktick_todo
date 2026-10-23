@@ -65,6 +65,7 @@ class TickTickApiClient:
         method: str,
         endpoint: str,
         json_data: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
     ) -> Any:
         """Execute an HTTP request against the TickTick Open API."""
         headers = await self._async_get_headers()
@@ -78,6 +79,7 @@ class TickTickApiClient:
                     url,
                     headers=headers,
                     json=json_data,
+                    params=params,
                 ) as resp:
                     if resp.status in (401, 403):
                         raise ConfigEntryAuthFailed(
@@ -108,6 +110,8 @@ class TickTickApiClient:
             raise TickTickApiError(
                 f"Error communicating with TickTick API ({method} {endpoint}): {err}"
             ) from err
+
+    # --- Project & Task Endpoints ---
 
     async def async_get_projects(self) -> list[dict[str, Any]]:
         """Fetch all user projects."""
@@ -144,3 +148,37 @@ class TickTickApiClient:
         await self._async_request(
             "DELETE", f"/project/{project_id}/task/{task_id}"
         )
+
+    # --- Habit Endpoints ---
+
+    async def async_get_habits(self) -> list[dict[str, Any]]:
+        """Fetch all habits for the user."""
+        result = await self._async_request("GET", "/habit")
+        return result if isinstance(result, list) else []
+
+    async def async_get_habit_checkins(
+        self,
+        habit_ids: list[str],
+        from_stamp: int,
+        to_stamp: int,
+    ) -> Any:
+        """Fetch check-in records for the given habits and date range (YYYYMMDD)."""
+        if not habit_ids:
+            return []
+        params = {
+            "habitIds": ",".join(habit_ids),
+            "from": str(from_stamp),
+            "to": str(to_stamp),
+        }
+        return await self._async_request("GET", "/habit/checkins", params=params)
+
+    async def async_checkin_habit(
+        self,
+        habit_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Create or update a habit check-in."""
+        result = await self._async_request(
+            "POST", f"/habit/{habit_id}/checkin", json_data=payload
+        )
+        return result if isinstance(result, dict) else {}

@@ -26,5 +26,33 @@
         "name": "Inbox"
       }
     }
+  },
+  "services": {
+    "habit_checkin": {
+      "name": "Habit check-in",
+      "description": "Check in a TickTick Habit or manually add/set time or progress towards a habit's daily goal.",
+      "fields": {
+        "entity_id": {
+          "name": "Habit entity",
+          "description": "Select a TickTick Habit switch, number, or button entity."
+        },
+        "habit_id": {
+          "name": "Habit ID or Name",
+          "description": "The TickTick Habit ID or exact name (e.g. 'Read'). Optional if an entity is selected."
+        },
+        "add_value": {
+          "name": "Add value / time",
+          "description": "Amount of progress or time to add to today's check-in value (e.g. 15 to add 15 minutes)."
+        },
+        "value": {
+          "name": "Exact value",
+          "description": "Set the check-in value to an exact number. If neither 'value' nor 'add_value' is provided, the habit is checked in at 100% of its daily goal."
+        },
+        "date": {
+          "name": "Date",
+          "description": "Date for the check-in (defaults to today)."
+        }
+      }
+    }
   }
 }
